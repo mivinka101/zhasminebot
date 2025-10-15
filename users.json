@@ -1,0 +1,26 @@
+{
+  "2081724187": {
+    "username": "arspzdctip",
+    "nick": null,
+    "nick_enabled": false,
+    "balance": 9000,
+    "bank": 0,
+    "rating": 0,
+    "house": null,
+    "car": null,
+    "business": null,
+    "farms": {
+      "1": 0,
+      "2": 0,
+      "3": 0
+    },
+    "farm_last_ts": 1760391198,
+    "farm_vault": 0,
+    "wins": 0,
+    "losses": 0,
+    "last_work": 0,
+    "last_daily": 0,
+    "is_banned": false,
+    "mute_until": 0
+  }
+}
