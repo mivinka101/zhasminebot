@@ -1,18 +1,20 @@
-# bot_simple.py — версия с жёстко прописанным токеном и бесплатным ИИ
+# bot_simple.py — твоя версия: ИИ (HF + фолбэк), нарезка длинных ответов, мини-игра
 import asyncio
+import os
 import requests
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
 import game_logic as game
 
-# ====== ТВОЙ ТОКЕН БОТА (как просил) ======
+# ====== токен бота (как просил — хардкод) ======
 BOT_TOKEN = "8396678240:AAGtZq5LT41xgtB-XGu413TZ7LnWVfyaWVs"
 
-# ====== Роутер (его подключает app.py на Render) ======
+# ====== роутер, его подключает app.py ======
 router = Router()
 
-# ====== Клавиатуры ======
+# ====== клавиатуры ======
 MAIN_KB = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="🤖 ИИ чат"), KeyboardButton(text="🎮 Мини-игра")]],
     resize_keyboard=True
@@ -22,17 +24,38 @@ BACK_KB = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ====== Память режима на пользователя ======
+# ====== хранение режима пользователя ======
 _mode = {}  # user_id -> "ai" | "game"
 def set_mode(uid: int, mode: str): _mode[uid] = mode
 def get_mode(uid: int) -> str:     return _mode.get(uid, "ai")
 
-# ==== ИИ БЕЗ КЛЮЧЕЙ (Pollinations) ====
-import requests, asyncio
+# ====== ИИ: HuggingFace c токеном + фолбэк без ключей ======
+HF_TOKEN = os.getenv("HF_TOKEN")  # добавь в Render → Environment при желании
+HF_URL = "https://api-inference.huggingface.co/models/google/gemma-2b-it"
 
 def _gen_sync(prompt: str, system: str | None = None) -> str:
     system = system or "Отвечай кратко и по делу, на русском."
     text = f"{system}\n\nВопрос: {prompt}"
+
+    # 1) пробуем HuggingFace с токеном
+    if HF_TOKEN:
+        try:
+            r = requests.post(
+                HF_URL,
+                headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                json={"inputs": text},
+                timeout=60,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list) and data and "generated_text" in data[0]:
+                    return (data[0]["generated_text"] or "").strip()
+                return str(data)
+            # если не 200 — идём в фолбэк
+        except Exception:
+            pass
+
+    # 2) фолбэк без ключей (Pollinations)
     try:
         r = requests.get("https://text.pollinations.ai/", params={"text": text}, timeout=60)
         if r.status_code == 200:
@@ -44,13 +67,11 @@ def _gen_sync(prompt: str, system: str | None = None) -> str:
 async def generate_async(prompt: str, system: str | None = None) -> str:
     return await asyncio.to_thread(_gen_sync, prompt, system)
 
-
-# ====== Инициализация мини-игры ======
-# В твоём game_logic.py функции принимают chat_id/Message и сами шлют ответы через Telegram API.
-# Токен передавать не нужно — там уже всё настроено.
+# ====== инициализация мини-игры ======
+# твой game_logic сам шлёт сообщения пользователю; токен ему уже известен
 game.init_from_config({"BOT_TOKEN": BOT_TOKEN})
 
-# ====== Хэндлеры ======
+# ====== хэндлеры ======
 @router.message(CommandStart())
 async def start_cmd(m: types.Message):
     set_mode(m.from_user.id, "ai")
@@ -86,21 +107,30 @@ async def fallback(m: types.Message):
     mode = get_mode(uid)
 
     if mode == "game":
-        handled = game.process_text_with_game(m)  # True если мини-игра обработала сообщение
+        handled = game.process_text_with_game(m)
         if not handled:
             await m.answer("Не распознал команду мини-игры. Пример: «профиль», «баланс», «казино 100».")
         return
 
-    # mode == "ai"
+    # режим ИИ
     await m.answer("⏳ Думаю над ответом...")
     text = await generate_async(m.text or "", system="Отвечай кратко и по делу, на русском.")
-    await m.answer(text if text else "Пустой ответ.")
+    text = (text or "").strip()
 
-# ====== Опционально: локальный запуск в режиме polling ======
-# На Render это НЕ нужно (там webhook через app.py).
+    # Нарезаем длинные ответы (лимит Telegram ~4096)
+    MAX_LEN = 3500
+    if not text:
+        await m.answer("Пустой ответ.")
+    elif len(text) <= MAX_LEN:
+        await m.answer(text)
+    else:
+        for i in range(0, len(text), MAX_LEN):
+            await m.answer(text[i:i+MAX_LEN])
+
+# ====== опциональный локальный запуск (polling) — на Render не нужен ======
 if __name__ == "__main__":
-    import logging
     from aiogram import Bot, Dispatcher
+    import logging
     logging.basicConfig(level=logging.INFO)
     async def main():
         bot = Bot(token=BOT_TOKEN)
@@ -109,4 +139,3 @@ if __name__ == "__main__":
         print("Бот запущен (polling).")
         await dp.start_polling(bot)
     asyncio.run(main())
-
