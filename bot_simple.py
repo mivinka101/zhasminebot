@@ -27,25 +27,23 @@ _mode = {}  # user_id -> "ai" | "game"
 def set_mode(uid: int, mode: str): _mode[uid] = mode
 def get_mode(uid: int) -> str:     return _mode.get(uid, "ai")
 
-# ====== Бесплатный ИИ (без ключей/установок) ======
-API_URL = "https://api-inference.huggingface.co/models/google/gemma-2b-it"
+# ==== ИИ БЕЗ КЛЮЧЕЙ (Pollinations) ====
+import requests, asyncio
 
 def _gen_sync(prompt: str, system: str | None = None) -> str:
     system = system or "Отвечай кратко и по делу, на русском."
     text = f"{system}\n\nВопрос: {prompt}"
     try:
-        r = requests.post(API_URL, json={"inputs": text}, timeout=60)
+        r = requests.get("https://text.pollinations.ai/", params={"text": text}, timeout=60)
         if r.status_code == 200:
-            data = r.json()
-            if isinstance(data, list) and data and "generated_text" in data[0]:
-                return (data[0]["generated_text"] or "").strip()
-            return str(data)
+            return (r.text or "").strip()
         return f"Ошибка {r.status_code}: {r.text}"
     except Exception as e:
         return f"Ошибка соединения: {e}"
 
 async def generate_async(prompt: str, system: str | None = None) -> str:
     return await asyncio.to_thread(_gen_sync, prompt, system)
+
 
 # ====== Инициализация мини-игры ======
 # В твоём game_logic.py функции принимают chat_id/Message и сами шлют ответы через Telegram API.
@@ -111,3 +109,4 @@ if __name__ == "__main__":
         print("Бот запущен (polling).")
         await dp.start_polling(bot)
     asyncio.run(main())
+
