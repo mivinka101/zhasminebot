@@ -1,4 +1,4 @@
 aiogram
-requests
 fastapi
 uvicorn[standard]
+requests
